@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_25_130058) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_25_183808) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -31,7 +31,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_25_130058) do
     t.bigint "created_by_id", null: false
     t.date "date"
     t.text "description"
-    t.bigint "group_id", null: false
+    t.bigint "group_id"
     t.bigint "paid_by_id", null: false
     t.string "split_type"
     t.string "title"
@@ -70,15 +70,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_25_130058) do
     t.index ["created_by_id"], name: "index_groups_on_created_by_id"
   end
 
+  create_table "notifications", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "message"
+    t.string "notification_type"
+    t.boolean "read", default: false
+    t.bigint "receiver_id", null: false
+    t.bigint "sender_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["receiver_id"], name: "index_notifications_on_receiver_id"
+    t.index ["sender_id"], name: "index_notifications_on_sender_id"
+  end
+
   create_table "settlements", force: :cascade do |t|
     t.decimal "amount"
     t.datetime "created_at", null: false
     t.bigint "expense_id"
+    t.bigint "group_id"
     t.bigint "payer_id", null: false
     t.bigint "receiver_id", null: false
     t.string "status"
     t.datetime "updated_at", null: false
     t.index ["expense_id"], name: "index_settlements_on_expense_id"
+    t.index ["group_id"], name: "index_settlements_on_group_id"
     t.index ["payer_id"], name: "index_settlements_on_payer_id"
     t.index ["receiver_id"], name: "index_settlements_on_receiver_id"
   end
@@ -101,7 +115,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_25_130058) do
   add_foreign_key "group_members", "groups"
   add_foreign_key "group_members", "users"
   add_foreign_key "groups", "users", column: "created_by_id"
+  add_foreign_key "notifications", "users", column: "receiver_id"
+  add_foreign_key "notifications", "users", column: "sender_id"
   add_foreign_key "settlements", "expenses"
+  add_foreign_key "settlements", "groups"
   add_foreign_key "settlements", "users", column: "payer_id"
   add_foreign_key "settlements", "users", column: "receiver_id"
 end

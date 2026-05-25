@@ -42,13 +42,27 @@ class Api::V1::GroupsController < ApplicationController
         members: group.members.map { |m| { id: m.id, name: m.name, email: m.email } },
         expenses: group.expenses.order(date: :desc).map { |e| 
           {
-            id: e.id,
+            id: "expense_#{e.id}",
+            type: 'expense',
             title: e.title,
             amount: e.amount,
             paid_by: { id: e.paid_by.id, name: e.paid_by.name },
-            date: e.date
+            date: e.date,
+            created_at: e.created_at
           }
-        }
+        } + Settlement.where(group_id: group.id).order(created_at: :desc).map { |s|
+          {
+            id: "settlement_#{s.id}",
+            type: 'settlement',
+            title: "Settlement",
+            amount: s.amount,
+            payer: { id: s.payer.id, name: s.payer.name },
+            receiver: { id: s.receiver.id, name: s.receiver.name },
+            date: s.created_at.to_date,
+            created_at: s.created_at
+          }
+        }.sort_by { |item| -item[:created_at].to_i },
+        simplified_debts: GroupDebtSimplifier.calculate(group)
       }
     else
       render json: { error: 'Group not found' }, status: :not_found

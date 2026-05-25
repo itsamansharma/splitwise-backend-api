@@ -16,13 +16,16 @@ class Api::V1::SettlementsController < ApplicationController
   def create
     receiver_id = params.dig(:settlement, :receiver_id).to_i
     amount_to_settle = params.dig(:settlement, :amount).to_f
+    group_id = params.dig(:settlement, :group_id)
 
-    # Validate against BalanceCalculatorService
-    balances = BalanceCalculatorService.calculate_for(@current_user)
-    owed_record = balances[:you_owe].find { |debt| debt[:user][:id] == receiver_id }
+    if group_id.blank?
+      # Validate against global balances if no group_id
+      balances = BalanceCalculatorService.calculate_for(@current_user)
+      owed_record = balances[:you_owe].find { |debt| debt[:user][:id] == receiver_id }
 
-    if owed_record.nil? || amount_to_settle > owed_record[:amount]
-      return render json: { error: "You can only settle an amount less than or equal to what you owe ($#{owed_record ? owed_record[:amount] : 0})" }, status: :unprocessable_entity
+      if owed_record.nil? || amount_to_settle > owed_record[:amount]
+        return render json: { error: "You can only settle an amount less than or equal to what you owe ($#{owed_record ? owed_record[:amount] : 0})" }, status: :unprocessable_entity
+      end
     end
 
     settlement = Settlement.new(settlement_params)
@@ -39,6 +42,6 @@ class Api::V1::SettlementsController < ApplicationController
   private
 
   def settlement_params
-    params.require(:settlement).permit(:receiver_id, :amount)
+    params.require(:settlement).permit(:receiver_id, :amount, :group_id)
   end
 end

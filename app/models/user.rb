@@ -22,4 +22,7 @@ class User < ApplicationRecord
 
   has_many :settlements_paid, class_name: 'Settlement', foreign_key: 'payer_id'
   has_many :settlements_received, class_name: 'Settlement', foreign_key: 'receiver_id'
+
+  has_many :notifications_received, class_name: 'Notification', foreign_key: 'receiver_id', dependent: :destroy
+  has_many :notifications_sent, class_name: 'Notification', foreign_key: 'sender_id', dependent: :destroy
 end

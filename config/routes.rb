@@ -29,9 +29,14 @@ Rails.application.routes.draw do
       # Expenses
       resources :expenses
 
-      # Settlements & Activities
+      # Settlements & Activities & Notifications
       resources :settlements, only: [:index, :create]
       resources :activities, only: [:index]
+      resources :notifications, only: [:index, :create] do
+        member do
+          patch :mark_as_read
+        end
+      end
 
       # Profile
       resource :profile, only: [:show, :update]

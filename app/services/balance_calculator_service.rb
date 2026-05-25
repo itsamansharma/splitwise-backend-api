@@ -1,72 +1,75 @@
 class BalanceCalculatorService
   def self.calculate_for(user)
-    you_owe = Hash.new(0)
-    you_are_owed = Hash.new(0)
-
-    # 1. Calculate from Expenses
-    # Case A: User owes someone for an expense someone else paid
-    user.expense_participants.includes(expense: :paid_by).each do |participant|
-      expense = participant.expense
-      next if expense.paid_by_id == user.id
-
-      amount = participant.amount_owed
-      if amount > 0
-        you_owe[expense.paid_by_id] += amount
-      end
+    balances = Hash.new(0)
+    
+    # 1. Calculate net balance for EVERY user in the system
+    
+    # Subtract what people owe for expenses
+    ExpenseParticipant.find_each do |ep|
+      balances[ep.user_id] -= ep.amount_owed
+      balances[ep.user_id] += ep.amount_paid
     end
 
-    # Case B: User paid for an expense, others owe user
-    user.expenses_paid.includes(:expense_participants).each do |expense|
-      expense.expense_participants.each do |participant|
-        next if participant.user_id == user.id
-
-        amount = participant.amount_owed
-        if amount > 0
-          you_are_owed[participant.user_id] += amount
-        end
-      end
+    # Add/subtract based on settlements
+    Settlement.where(status: 'completed').find_each do |s|
+      balances[s.payer_id] += s.amount
+      balances[s.receiver_id] -= s.amount
     end
 
-    # 2. Apply Settlements
-    user.settlements_paid.where(status: 'completed').each do |settlement|
-      you_owe[settlement.receiver_id] -= settlement.amount
+    # 2. Divide users into debtors and creditors
+    debtors = balances.select { |_, balance| balance < -0.01 }.map { |id, b| { user_id: id, amount: -b } }.sort_by { |d| -d[:amount] }
+    creditors = balances.select { |_, balance| balance > 0.01 }.map { |id, b| { user_id: id, amount: b } }.sort_by { |c| -c[:amount] }
+
+    simplified_debts = []
+    
+    # 3. Greedily match debtors to creditors
+    i = 0
+    j = 0
+
+    while i < debtors.length && j < creditors.length
+      debtor = debtors[i]
+      creditor = creditors[j]
+
+      amount_to_settle = [debtor[:amount], creditor[:amount]].min
+
+      simplified_debts << {
+        payer_id: debtor[:user_id],
+        receiver_id: creditor[:user_id],
+        amount: amount_to_settle.round(2)
+      }
+
+      debtor[:amount] -= amount_to_settle
+      creditor[:amount] -= amount_to_settle
+
+      i += 1 if debtor[:amount] < 0.01
+      j += 1 if creditor[:amount] < 0.01
     end
 
-    user.settlements_received.where(status: 'completed').each do |settlement|
-      you_are_owed[settlement.payer_id] -= settlement.amount
+    # 4. Filter for the requested user
+    you_owe = simplified_debts.select { |d| d[:payer_id] == user.id }.map do |d|
+      { user: { id: d[:receiver_id] }, amount: d[:amount].to_f }
     end
-
-    # 3. Simplify net balances
-    you_owe.keys.each do |other_user_id|
-      if you_are_owed[other_user_id] > 0
-        if you_are_owed[other_user_id] >= you_owe[other_user_id]
-          you_are_owed[other_user_id] -= you_owe[other_user_id]
-          you_owe[other_user_id] = 0
-        else
-          you_owe[other_user_id] -= you_are_owed[other_user_id]
-          you_are_owed[other_user_id] = 0
-        end
-      end
+    
+    you_are_owed = simplified_debts.select { |d| d[:receiver_id] == user.id }.map do |d|
+      { user: { id: d[:payer_id] }, amount: d[:amount].to_f }
     end
+    
+    # Fetch user details
+    user_ids = (you_owe.map { |d| d[:user][:id] } + you_are_owed.map { |d| d[:user][:id] }).uniq
+    users_cache = User.where(id: user_ids).index_by(&:id)
+    
+    you_owe.each { |d| d[:user][:name] = users_cache[d[:user][:id]]&.name }
+    you_are_owed.each { |d| d[:user][:name] = users_cache[d[:user][:id]]&.name }
 
-    total_you_owe = you_owe.values.select { |v| v > 0 }.sum
-    total_you_are_owed = you_are_owed.values.select { |v| v > 0 }.sum
+    total_you_owe = you_owe.sum { |d| d[:amount] }
+    total_you_are_owed = you_are_owed.sum { |d| d[:amount] }
 
-    users_cache = User.where(id: you_owe.keys | you_are_owed.keys).index_by(&:id)
-
-    formatted_you_owe = you_owe.select { |_, v| v > 0 }.map do |user_id, amount|
-      { user: { id: user_id, name: users_cache[user_id]&.name }, amount: amount.to_f }
-    end
-
-    formatted_you_are_owed = you_are_owed.select { |_, v| v > 0 }.map do |user_id, amount|
-      { user: { id: user_id, name: users_cache[user_id]&.name }, amount: amount.to_f }
-    end
-
+    # 5. Return optimized dashboard data
     {
       total_you_owe: total_you_owe.to_f,
       total_you_are_owed: total_you_are_owed.to_f,
-      you_owe: formatted_you_owe,
-      you_are_owed: formatted_you_are_owed
+      you_owe: you_owe,
+      you_are_owed: you_are_owed
     }
   end
 end
